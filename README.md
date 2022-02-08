@@ -1,3 +1,3 @@
 # ULTIMATE-Subaru-Sensitivity-Calculator
 
-Sensitivity calculator for the ULTIMATE-Subaru WFI calculator.
+Sensitivity calculator for the ULTIMATE-Subaru WFI camera.
