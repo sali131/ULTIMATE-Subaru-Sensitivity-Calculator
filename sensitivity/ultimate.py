@@ -214,11 +214,11 @@ def filter_info(file_name):
     return filter_name, filter_wc, filter_dw, Tr_filter, Tr_inst
 
 def filter_info_custom(file_name):
-    fbg = pd.read_csv(file_name, header = None, delimiter=" |\t", engine='python')
-    filter_name = fbg.iloc[:, 0].to_list()
-    filter_wc = fbg.iloc[:, 1].to_list()
-    filter_dw = fbg.iloc[:, 2].to_list()
-    Tr_filter = fbg.iloc[:, 3].to_list()
+    fbg = pd.read_csv(file_name, delimiter=" |\t", engine='python')
+    filter_name = fbg['filter_name'].to_list()
+    filter_wc = fbg['filter_central'].to_list()
+    filter_dw = fbg['filter_width'].to_list()
+    Tr_filter = fbg['filter_tr'].to_list()
 #    filter_wc_pre = [1.03,1.25,1.29,1.64,2.14,1.5,1.61,1.73,2.02,2.17,2.32]
 #    Tr_inst_pre = [0.4,0.4,0.4,0.47,0.44,0.48,0.55,0.47,0.48,0.49,0.45]
 #    Tr_inst_spline = UnivariateSpline(filter_wc_pre, Tr_inst_pre, s=1)
