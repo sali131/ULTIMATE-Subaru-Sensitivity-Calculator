@@ -15,7 +15,7 @@ The following options will be presented in order when running the code - it will
 
 5) Pixel scale in arcsec/pixel. Default value is 0.1 (planned pixel scale for ULTIMATE).
 
-6) Read noise in e-/rms. Default value is 16 (expected pixel scale for the detector).
+6) Read noise in e-/rms. Default value is 16 (expected read noise for the detector).
 
 7) Exposure time should be given in hours (or fraction of hours). The default value is 1 hour.
 
