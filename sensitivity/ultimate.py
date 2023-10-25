@@ -11,7 +11,7 @@ print('**************************')
 instrument = input('Filter options are \'moircs\', \'swims\' or \'custom\' (default is moircs): ') or 'moircs'
 
 if instrument == 'moircs':
-    filter = input('MOIRCS filter options are \'bb\', \'mb\' or \'nb\' (default is bb): ') or 'nb'
+    filter = input('MOIRCS filter options are \'bb\', \'mb\' or \'nb\' (default is bb): ') or 'bb'
     filename = instrument+'_'+filter+'.asc'
 elif instrument == 'swims':
     filter = input('SWIMS filter options are \'bb\', \'mb\' or \'nb\' (default is mb): ') or 'mb'
