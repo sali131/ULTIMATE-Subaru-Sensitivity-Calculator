@@ -2,6 +2,6 @@
 
 Sensitivity calculator for ULTIMATE-Subaru WFI.
 
-Download the "ultimate" folder and run the ultimate.py python script to initiate the sensitivity calculator.
+Download the "sensitivity" folder and run the ultimate.py python script to initiate the sensitivity calculator.
 
 The readme file inside the folder describes the input parameters for the sensitivity calculator.
