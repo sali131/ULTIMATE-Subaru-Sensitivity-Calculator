@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import math
 import matplotlib.pyplot as plt
 from scipy.interpolate import UnivariateSpline
@@ -12,21 +11,20 @@ print('**************************')
 instrument = input('Filter options are \'moircs\', \'swims\' or \'custom\' (default is moircs): ') or 'moircs'
 
 if instrument == 'moircs':
-    filter = input('MOIRCS filter options are \'bb\' or \'nb\' (default is bb): ') or 'bb'
+    filter = input('MOIRCS filter options are \'bb\', \'mb\' or \'nb\' (default is bb): ') or 'nb'
     filename = instrument+'_'+filter+'.asc'
 elif instrument == 'swims':
-    filter = input('SWIMS filter options are \'bb\', \'mb\' or \'nb\' (default is bb): ') or 'bb'
+    filter = input('SWIMS filter options are \'bb\', \'mb\' or \'nb\' (default is mb): ') or 'mb'
     filename = instrument+'_'+filter+'.asc'
 else:
     filename = 'custom.asc'
     filter = 'custom'
 
 ao = input('AO options are \'glao\' or \'noao\' (default is glao): ') or 'glao'
-
-hrs = float(input('Exposure time in hours (default is 1 hours): ') or '1.0')
+pxs = float(input('Pixel Scale in arcsec/pixel (default is 0.1): ') or '0.1')
+rns = float(input('Read noise in e-/rms (default is 16): ') or '16')
+hrs = float(input('Exposure time in hours (default is 1 hours): ') or '1')
 snr = float(input('Desired SNR (default is 5): ') or '5')
-#NOAO = 1.2/1.9/3.0
-#GLAO = 0.65/1.15/2.25
 Tr_inst_filter = float(input('Desired Instrument+Filter Throughput (default is 0.45): ') or '0.45')
 
 wv_og = float(input('Water Vapour, choose from 1.0, 1.6, 3.0, 5.0 mm (default is 1.0): ') or '1.0')
@@ -34,8 +32,12 @@ am_og = float(input('Airmass, choose from 1.0, 1.5, 2.0 (default is 1.0): ') or 
 wv = int(str(wv_og).replace('.',''))
 am = int(str(am_og).replace('.',''))
 
-width = 3.487
-height = width / 1.618
+if am_og == 1.0:
+    name_d50 = 'D50_am=1.0.csv'
+elif am_og == 1.5:
+    name_d50 = 'D50_am=1.5.csv'
+elif am_og == 2.0:
+    name_d50 = 'D50_am=2.0.csv'
 
 plt.rcParams['font.family'] = 'Times New Roman'
 plt.rcParams['font.size'] = 10
@@ -96,7 +98,7 @@ def bb_radiation(lam, T):
 # delta: Filter bandwidth [micron]
 def f0(m0, Tr_sky, Tr_tel, Tr_inst, Tr_filter, l0, delta):
 
-    # fulx density that corresponds to m0 in AB [erg/sec/cm^2/A]
+    # flux density that corresponds to m0 in AB [erg/sec/cm^2/A]
     f0_cal = 10.0**(-0.4*(m0 + 5.0*math.log10(l0*1.0e+4) + 2.408))
 
     # detector count [e-/sec]
@@ -122,7 +124,7 @@ def sky_bg_calc(l0, delta, f_sky, Tsky):
         param = line.strip().split()
         lam_skybg = float(param[0])
         bg_skybg = float(param[1])
-    
+
         if lam_skybg >= (l0-0.5*delta)*1.0e+3 and lam_skybg <= (l0+0.5*delta)*1.0e+3:
 
             sky_throughput = np.interp(lam_skybg/1000.0, skt_lam, skt_tr)
@@ -134,6 +136,29 @@ def sky_bg_calc(l0, delta, f_sky, Tsky):
             
     fp.close()
     return np.array(sky_lam_arr), np.array(sky_bg_arr)
+
+# Moon Background
+def moon_bg_calc(l0, delta, f_sky):
+
+    fp = open('MaunaKea_Sky/ultimate/moon.txt')
+
+    moon_lam_arr = []
+    moon_bg_arr = []
+    
+    for line in fp:
+        param = line.strip().split()
+        lam_moonbg = float(param[0])
+        bg_moonbg = float(param[1])
+
+        if lam_moonbg >= (l0-0.5*delta)*1.0e+3 and lam_moonbg <= (l0+0.5*delta)*1.0e+3:
+            
+            bg_moonbg = f_sky*bg_moonbg
+
+            moon_lam_arr.append(lam_moonbg/1.0e+3) # micron
+            moon_bg_arr.append(bg_moonbg*1.0e-5*(math.pi*0.25*Dp**2)) # ph/sec/A/arcsec^2
+            
+    fp.close()
+    return np.array(moon_lam_arr), np.array(moon_bg_arr)
 
 # Sky transmittance from Gemini
 # http://www.gemini.edu/sciops/telescopes-and-sites/observing-condition-constraints/ir-transmission-spectra
@@ -178,7 +203,10 @@ def bgcalc(l0, delta, fsky, Tsky, Tr_filter, Tr_inst_filter):
     
     # calculate sky background level [photon/sec/arcsec^2]
     sky_lam, sky_bg = sky_bg_calc(l0, delta, fsky, Tsky)
-    
+
+    # calculate moon background level [photon/sec/arcsec^2]
+    moon_lam, moon_bg = moon_bg_calc(l0, delta, fsky)
+
     # average wavelength step width in Angstrom
     dw_ave = 0
     dw_num = 0
@@ -190,19 +218,22 @@ def bgcalc(l0, delta, fsky, Tsky, Tr_filter, Tr_inst_filter):
     # Total detector count from sky background [e-/sec/arcsec^2]
     f_skybg = np.sum(sky_bg*dw_ave*Tr_tel*Tr_inst*Tr_filter)
 
-    m0 = 15.0
-    #print m0 - 2.5*math.log10(f_skybg/f0(m0, Tr_sky, Tr_tel, Tr_inst, Tr_filter, l0, delta))
+    # Total detector count from moon background [e-/sec/arcsec^2]
+    f_moonbg = np.sum(moon_bg*dw_ave*Tr_tel*Tr_inst*Tr_filter)
 
     A_arcsec2 = (fl * (1.0/3600.0) * (math.pi/180.0))**2 # [cm^2]
     Omega_t = (math.pi/(4.0*fr**2))*((e_Tel_M2+e_Tel_M1*(1.0-e_Tel_M2))*(1.0-vc**2) + e_Tel_CC*vc**2 + rho**2 - 1.0)
     
+    #Total detector count from the telescope background [e-/sec/arcsec^2]
     f_telbg = 0
     for i in range(len(sky_lam)):
-        f_telbg += bb_radiation(sky_lam[i], Temp_Env) * Tr_inst * Tr_filter * dw_ave * A_arcsec2 * Omega_t # [e-/sec/arcsec^2]
+        f_telbg += bb_radiation(sky_lam[i], Temp_Env) * Tr_inst * Tr_filter * dw_ave * A_arcsec2 * Omega_t
 
+    #Mag from m0 star
+    m0 = 15.0
     mbg = m0 - 2.5*math.log10((f_skybg+f_telbg)/f0(m0, Tr_sky, Tr_tel, Tr_inst, Tr_filter, l0, delta))
     
-    return mbg, f_skybg, f_telbg, Tr_tel, Tr_sky, Tr_inst
+    return mbg, f_skybg, f_telbg, f_moonbg, Tr_tel, Tr_sky, Tr_inst
 
 def filter_info(file_name):
     fbg = pd.read_csv(file_name, header = None, delimiter=" |\t", engine='python')
@@ -227,21 +258,21 @@ def filter_info_custom(file_name):
     Tr_inst = 1
     return filter_name, filter_wc, filter_dw, Tr_filter, Tr_inst
 
-def wfi_cs_limiting_mag(filter_name, filter_wc, filter_dw, Tr_filter, instrument, hrs, snr):
+def wfi_cs_limiting_mag(filter_name, filter_wc, filter_dw, Tr_filter, instrument, hrs, snr, rns, pxs):
 
     wfi_cs_limiting_mag = []
 
     for i in range(len(filter_name)):
         
-        df = pd.read_csv('D50.csv')
+        df = pd.read_csv(name_d50) #50% Enircled energy diameters for different seeing monditions with and w/o GLAO
         wavenc = df['Wav'].to_numpy()
         
-        glao_good = df['D50_glao_good'].to_numpy()
-        glao_median = df['D50_glao_median'].to_numpy()
-        glao_bad = df['D50_glao_bad'].to_numpy()
-        noao_good = df['D50_noao_good'].to_numpy()
-        noao_median = df['D50_noao_median'].to_numpy()
-        noao_bad = df['D50_noao_bad'].to_numpy()
+        glao_good = df['GLAO_G'].to_numpy()
+        glao_median = df['GLAO_M'].to_numpy()
+        glao_bad = df['GLAO_B'].to_numpy()
+        noao_good = df['NOAO_G'].to_numpy()
+        noao_median = df['NOAO_M'].to_numpy()
+        noao_bad = df['NOAO_B'].to_numpy()
         
         sglao_good = UnivariateSpline(wavenc, glao_good, k=2)
         sglao_median = UnivariateSpline(wavenc, glao_median, k=2)
@@ -268,31 +299,77 @@ def wfi_cs_limiting_mag(filter_name, filter_wc, filter_dw, Tr_filter, instrument
 
         bgres = bgcalc(filter_wc[i], filter_dw[i], fsky_min, Tsky_min, Tr_filter[i], Tr_inst_filter)
 
-        bg_total = bgres[1] + bgres[2] # e/sec/arcsec^2
+        bg_total = bgres[1] + bgres[2] + bgres[3] # e/sec/arcsec^2
         mbg = bgres[0]
         f_skybg = bgres[1]
         f_telbg = bgres[2]
-        Tr_tel = bgres[3]
-        Tr_sky = bgres[4]
-        Tr_inst = bgres[5]
-        
-        texp = 3600.0 * hrs # sec
-        snr = snr
-        A = math.pi * Dp**2 * (1 - vc**2) / 4.0
+        f_moonbg = bgres[3]
+        Tr_tel = bgres[4]
+        Tr_sky = bgres[5]
+        Tr_inst = bgres[6]
 
-        # eta & D50
+        texp = 3600.0 * hrs # Exposure time in seconds
+#        texp = hrs # sec
+        snr = snr #S/N ratio
+        A = math.pi * (Dp**2) * (1 - vc**2) / 4.0
+        Nr = rns #Readnoise in e-/rms
+        pixel_scale = pxs #Pixel Scale
+        
+        #Total throughput through sky, telecope, instrument and filter
         eta = Tr_filter[i] * Tr_inst * Tr_sky * Tr_tel
         
         # Single photon energy
         p =  h * c * 1.0e+6 / filter_wc[i] # [erg]
+
+        #Read noise component
+        rnbg_flam1 = ( Nr * math.sqrt( math.pi * ( (sl_glao_good/pixel_scale)**2 ) / 4 ) ) **2
+        rnbg_flam2 = ( Nr * math.sqrt( math.pi * ( (sl_glao_median/pixel_scale)**2 ) / 4 ) ) **2
+        rnbg_flam3 = ( Nr * math.sqrt( math.pi * ( (sl_glao_bad/pixel_scale)**2 ) / 4 ) ) **2
+        rnbg_flam4 = ( Nr * math.sqrt( math.pi * ( (sl_noao_good/pixel_scale)**2 ) / 4 ) ) **2
+        rnbg_flam5 = ( Nr * math.sqrt( math.pi * ( (sl_noao_median/pixel_scale)**2 ) / 4 ) ) **2
+        rnbg_flam6 = ( Nr * math.sqrt( math.pi * ( (sl_noao_bad/pixel_scale)**2 ) / 4 ) ) **2
         
-        flam1 = 2.0 * snr * p * math.sqrt(bg_total * (math.pi*sl_glao_good**2/4.0) * texp) / (A * texp * eta * filter_dw[i]*1.0e+4)
-        flam2 = 2.0 * snr * p * math.sqrt(bg_total * (math.pi*sl_glao_median**2/4.0) * texp) / (A * texp * eta * filter_dw[i]*1.0e+4)
-        flam3 = 2.0 * snr * p * math.sqrt(bg_total * (math.pi*sl_glao_bad**2/4.0) * texp) / (A * texp * eta * filter_dw[i]*1.0e+4)
-        flam4 = 2.0 * snr * p * math.sqrt(bg_total * (math.pi*sl_noao_good**2/4.0) * texp) / (A * texp * eta * filter_dw[i]*1.0e+4)
-        flam5 = 2.0 * snr * p * math.sqrt(bg_total * (math.pi*sl_noao_median**2/4.0) * texp) / (A * texp * eta * filter_dw[i]*1.0e+4)
-        flam6 = 2.0 * snr * p * math.sqrt(bg_total * (math.pi*sl_noao_bad**2/4.0) * texp) / (A * texp * eta * filter_dw[i]*1.0e+4)
+        #Sky background component
+        skybg_flam1 = f_skybg * texp * ( math.pi * (sl_glao_good**2) / 4 )
+        skybg_flam2 = f_skybg * texp * ( math.pi * (sl_glao_median**2) / 4 )
+        skybg_flam3 = f_skybg * texp * ( math.pi * (sl_glao_bad**2) / 4 )
+        skybg_flam4 = f_skybg * texp * ( math.pi * (sl_noao_good**2) / 4 )
+        skybg_flam5 = f_skybg * texp * ( math.pi * (sl_noao_median**2) / 4 )
+        skybg_flam6 = f_skybg * texp * ( math.pi * (sl_noao_bad**2) / 4 )
+
+        #Telescope background component
+        telbg_flam1 = f_telbg * texp * ( math.pi * (sl_glao_good**2) / 4 )
+        telbg_flam2 = f_telbg * texp * ( math.pi * (sl_glao_median**2) / 4 )
+        telbg_flam3 = f_telbg * texp * ( math.pi * (sl_glao_bad**2) / 4 )
+        telbg_flam4 = f_telbg * texp * ( math.pi * (sl_noao_good**2) / 4 )
+        telbg_flam5 = f_telbg * texp * ( math.pi * (sl_noao_median**2) / 4 )
+        telbg_flam6 = f_telbg * texp * ( math.pi * (sl_noao_bad**2) / 4 )
+
+        #Moon background component
+        moonbg_flam1 = f_moonbg * texp * ( math.pi * (sl_glao_good**2) / 4 )
+        moonbg_flam2 = f_moonbg * texp * ( math.pi * (sl_glao_median**2) / 4 )
+        moonbg_flam3 = f_moonbg * texp * ( math.pi * (sl_glao_bad**2) / 4 )
+        moonbg_flam4 = f_moonbg * texp * ( math.pi * (sl_noao_good**2) / 4 )
+        moonbg_flam5 = f_moonbg * texp * ( math.pi * (sl_noao_median**2) / 4 )
+        moonbg_flam6 = f_moonbg * texp * ( math.pi * (sl_noao_bad**2) / 4 )
         
+        #Sky+Telescope+Moon Background component
+        bg_flam1 = bg_total * texp * ( math.pi * (sl_glao_good**2) / 4 )
+        bg_flam2 = bg_total * texp * ( math.pi * (sl_glao_median**2) / 4 )
+        bg_flam3 = bg_total * texp * ( math.pi * (sl_glao_bad**2) / 4 )
+        bg_flam4 = bg_total * texp * ( math.pi * (sl_noao_good**2) / 4 )
+        bg_flam5 = bg_total * texp * ( math.pi * (sl_noao_median**2) / 4 )
+        bg_flam6 = bg_total * texp * ( math.pi * (sl_noao_bad**2) / 4 )
+        
+        #Total Limiting Flux with All background components
+        flam1 = 2.0 * snr * p * math.sqrt( bg_flam1 + rnbg_flam1 ) / (A * texp * eta * filter_dw[i]*1.0e+4)
+        flam2 = 2.0 * snr * p * math.sqrt( bg_flam2 + rnbg_flam2 ) / (A * texp * eta * filter_dw[i]*1.0e+4)
+        flam3 = 2.0 * snr * p * math.sqrt( bg_flam3 + rnbg_flam3 ) / (A * texp * eta * filter_dw[i]*1.0e+4)
+        flam4 = 2.0 * snr * p * math.sqrt( bg_flam4 + rnbg_flam4 ) / (A * texp * eta * filter_dw[i]*1.0e+4)
+        flam5 = 2.0 * snr * p * math.sqrt( bg_flam5 + rnbg_flam5 ) / (A * texp * eta * filter_dw[i]*1.0e+4)
+        flam6 = 2.0 * snr * p * math.sqrt( bg_flam6 + rnbg_flam6 ) / (A * texp * eta * filter_dw[i]*1.0e+4)
+
+        #Sensitivity (limiting magnitude) in AB mags
         m1 = -2.5*math.log10(flam1) - 5.0*math.log10(filter_wc[i]*1.0e+4) - 2.408
         m2 = -2.5*math.log10(flam2) - 5.0*math.log10(filter_wc[i]*1.0e+4) - 2.408
         m3 = -2.5*math.log10(flam3) - 5.0*math.log10(filter_wc[i]*1.0e+4) - 2.408
@@ -300,14 +377,17 @@ def wfi_cs_limiting_mag(filter_name, filter_wc, filter_dw, Tr_filter, instrument
         m5 = -2.5*math.log10(flam5) - 5.0*math.log10(filter_wc[i]*1.0e+4) - 2.408
         m6 = -2.5*math.log10(flam6) - 5.0*math.log10(filter_wc[i]*1.0e+4) - 2.408
         
-        wfi_cs_limiting_mag_filter = [filter_name[i], filter_wc[i], filter_dw[i], Tr_filter[i], Tr_inst, Tr_tel, Tr_sky, eta, m1, m2, m3, m4, m5, m6, f_skybg, f_telbg, bg_total]
+        wfi_cs_limiting_mag_filter = [filter_name[i], filter_wc[i], filter_dw[i], hrs, Tr_filter[i], Tr_inst, Tr_tel, Tr_sky, eta, m1, m2, m3, m4, m5, m6, f_skybg, f_telbg, f_moonbg, bg_total, skybg_flam1, skybg_flam2, skybg_flam3, skybg_flam4, skybg_flam5, skybg_flam6, telbg_flam1, telbg_flam2, telbg_flam3, telbg_flam4, telbg_flam5, telbg_flam6, moonbg_flam1, moonbg_flam2, moonbg_flam3, moonbg_flam4, moonbg_flam5, moonbg_flam6, rnbg_flam1, rnbg_flam2, rnbg_flam3, rnbg_flam4, rnbg_flam5, rnbg_flam6]
         wfi_cs_limiting_mag.append(wfi_cs_limiting_mag_filter)
     
-    lm = pd.DataFrame(wfi_cs_limiting_mag, columns = ['name', 'wav_central', 'filter_width', 'filter_tr', 'inst_tr', 'tel_tr', 'sky_tr', 'eta', 'mag_glao25_seeing_good', 'mag_glao50_seeing_moderate', 'mag_glao75_seeing_bad', 'mag_noao25_seeing_good', 'mag_noao50_seeing_moderate', 'mag_noao75_seeing_bad', 'counts_skybg', 'counts_telbg', 'counts_bg_total'])
+    lm = pd.DataFrame(wfi_cs_limiting_mag, columns = ['name', 'wav_central', 'filter_width', 'exp_hrs', 'filter_tr', 'inst_tr', 'tel_tr', 'sky_tr', 'eta', 'mag_glao25_seeing_good', 'mag_glao50_seeing_moderate', 'mag_glao75_seeing_bad', 'mag_noao25_seeing_good', 'mag_noao50_seeing_moderate', 'mag_noao75_seeing_bad', 'counts_skybg', 'counts_telbg', 'counts_moonbg', 'counts_bg_total', 'skybg_glao25', 'skybg_glao50', 'skybg_glao75', 'skybg_noao25', 'skybg_noao50', 'skybg_noao75', 'telbg_glao25', 'telbg_glao50', 'telbg_glao75', 'telbg_noao25', 'telbg_noao50', 'telbg_noao75', 'moonbg_glao25', 'moonbg_glao50', 'moonbg_glao75', 'moonbg_noao25', 'moonbg_noao50', 'moonbg_noao75', 'rnbg_glao25', 'rnbg_glao50', 'rnbg_glao75', 'rnbg_noao25', 'rnbg_noao50', 'rnbg_noao75'])
     
     lm = lm.round(3)
     
-    lm.to_csv('wfi_'+instrument+'_'+filter+'_am='+str(am)+'_wv='+str(wv)+'_tr='+str(Tr_inst_filter)+'.csv', index=False)
+    lm.to_csv('wfi_'+instrument+'_'+filter+'_am='+str(am)+'_wv='+str(wv)+'_tr='+str(Tr_inst_filter)+'_'+ao+'.csv', index=False)
+    
+#    lm.to_csv('wfi_'+instrument+'_'+filter+'_am='+str(am)+'_wv='+str(wv)+'_tr='+str(Tr_inst_filter)+'_'+ao+'_secs='+str(hrs)+'.csv', index=False)
+
     return lm
 
 def plot_sens(lm, filters, ao, instrument, snr, hrs):
@@ -355,8 +435,10 @@ def plot_sens(lm, filters, ao, instrument, snr, hrs):
     plt.grid()
     plt.legend(loc='lower left')
     plt.title(title)
-    
-    plt.savefig('wfi_'+instrument+'_'+filters+'_am='+str(am_og)+'_wv='+str(wv_og)+'_tr='+str(Tr_inst_filter)+'.png', format='png', dpi=400, width=width, height=height, bbox_inches='tight')
+
+    plt.savefig('wfi_'+instrument+'_'+filters+'_am='+str(am_og)+'_wv='+str(wv_og)+'_tr='+str(Tr_inst_filter)+'_'+ao+'.png', format='png', dpi=400, bbox_inches='tight')
+
+#    plt.savefig('wfi_'+instrument+'_'+filters+'_am='+str(am_og)+'_wv='+str(wv_og)+'_tr='+str(Tr_inst_filter)+'_'+ao+'_secs='+str(hrs)+'.png', format='png', dpi=400, bbox_inches='tight')
     return
 
 try:
@@ -364,5 +446,5 @@ try:
 except IndexError:
     filter_info = filter_info_custom(filename)
 
-lm = wfi_cs_limiting_mag(filter_info[0], filter_info[1], filter_info[2], filter_info[3], instrument=instrument, hrs=hrs, snr=snr)
+lm = wfi_cs_limiting_mag(filter_info[0], filter_info[1], filter_info[2], filter_info[3], instrument=instrument, hrs=hrs, snr=snr, rns=rns, pxs=pxs)
 plot_sens(lm, filters=filter, ao=ao, instrument=instrument, snr=snr, hrs=hrs)
