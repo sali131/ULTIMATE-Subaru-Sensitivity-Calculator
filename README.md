@@ -8,10 +8,10 @@ The readme file inside the folder describes the input parameters for the sensiti
 
 The following modules are required:
 
-*Numpy
+-Numpy
 
-*Scipy
+-Scipy
 
-*Pandas
+-Pandas
 
-*Matplotlib
+-Matplotlib
