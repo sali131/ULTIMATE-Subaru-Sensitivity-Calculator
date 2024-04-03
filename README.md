@@ -7,7 +7,11 @@ Download the "sensitivity" folder and run the ultimate.py python script to initi
 The readme file inside the folder describes the input parameters for the sensitivity calculator.
 
 The following modules are required:
+
 Numpy
+
 Scipy
+
 Pandas
+
 Matplotlib
